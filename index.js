@@ -1,6 +1,9 @@
 import puppeteer from "puppeteer";
 import fs from "fs";
 import path from "path";
+import FirecrawlApp from '@mendable/firecrawl-js';
+
+const app = new FirecrawlApp({apiKey: "fc-83afcf9b631043849570c71940f90dfe"});
 
 async function scrapePowerBI(countryCode, hsCode, hsLevel, signal) {
     const actual_hsn = hsCode;
