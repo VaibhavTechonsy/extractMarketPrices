@@ -1,5 +1,24 @@
 import puppeteer from 'puppeteer';
 import fs from 'fs';
+import { createClient } from '@supabase/supabase-js';
+import 'dotenv/config';
+
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+// Helper function to normalize country names for comparison
+function normalizeCountryName(countryName) {
+    return countryName.replace(/\s+/g, '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+}
+
+// Function to validate HSN code (must be numeric without dots and not just zeros)
+function isValidHsnCode(hscode) {
+    return typeof hscode === 'string' &&
+           /^\d+$/.test(hscode) &&
+           hscode !== '' &&
+           !/^0+$/.test(hscode); // Reject if it's all zeros
+}
 
 async function coutrywise_export() {
     const browser = await puppeteer.launch({ headless: true });
@@ -66,33 +85,26 @@ async function coutrywise_export() {
                     return obj;
                 });
 
-                // Initialize HS level data if not exists
                 if (!countryData.HSData[j]) {
                     countryData.HSData[j] = {};
                 }
 
-                // Process each item and merge by HSCode
                 cleanedTableData.forEach(item => {
                     const hscode = item.HSCode;
                     const year = i.toString();
-                    const prevYear = (i - 1).toString();
-                    const yearKey = `${prevYear}-${year}`;
-                    const nextYearKey = `${year}-${(i + 1).toString()}`;
-
+                    
                     if (!countryData.HSData[j][hscode]) {
-                        // Create new entry for this HSCode
                         countryData.HSData[j][hscode] = {
                             HSCode: hscode,
                             Commodity: item.Commodity
                         };
                     }
 
-                    // Add the year data
-                    if (item[yearKey]) {
-                        countryData.HSData[j][hscode][yearKey] = item[yearKey];
-                    }
-                    if (item[nextYearKey]) {
-                        countryData.HSData[j][hscode][nextYearKey] = item[nextYearKey];
+                    // Add all available data from the row
+                    for (const [key, value] of Object.entries(item)) {
+                        if (key !== 'HSCode' && key !== 'Commodity' && value) {
+                            countryData.HSData[j][hscode][key] = value;
+                        }
                     }
                 });
 
@@ -110,22 +122,17 @@ async function coutrywise_export() {
             const safeCountryName = countryData.Country.replace(/\s+/g, '').replace(/[^a-zA-Z0-9]/g, '');
             const filePath = `data/${safeCountryName}.json`;
             
-            // Check if file exists and merge data if needed
             if (fs.existsSync(filePath)) {
                 const existingData = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-                // Merge HS levels
                 for (const [hsLevel, data] of Object.entries(countryData.HSData)) {
                     if (existingData.HSData[hsLevel]) {
-                        // Create a map of existing HSCodes for quick lookup
                         const existingMap = {};
                         existingData.HSData[hsLevel].forEach(item => {
                             existingMap[item.HSCode] = item;
                         });
 
-                        // Merge new data
                         data.forEach(newItem => {
                             if (existingMap[newItem.HSCode]) {
-                                // Merge year data
                                 for (const [yearKey, value] of Object.entries(newItem)) {
                                     if (yearKey !== 'HSCode' && yearKey !== 'Commodity') {
                                         existingMap[newItem.HSCode][yearKey] = value;
@@ -145,6 +152,69 @@ async function coutrywise_export() {
             }
             
             console.log(`All HS data saved to ${filePath}`);
+
+            // Now upload to Supabase
+            const normalizedCountryName = normalizeCountryName(countryData.Country);
+            
+            // Process each HS level
+            for (const hsLevel in countryData.HSData) {
+                for (const item of countryData.HSData[hsLevel]) {
+                    const hscode = item.HSCode;
+                    
+                    // Skip if HSN code is invalid
+                    if (!isValidHsnCode(hscode)) {
+                        console.log(`Skipping invalid HSN code: ${hscode}`);
+                        continue;
+                    }
+
+                    // Create the data object without HSCode and Commodity
+                    const countryDataJson = {};
+                    for (const [key, value] of Object.entries(item)) {
+                        if (key !== 'HSCode' && key !== 'Commodity' && value) {
+                            countryDataJson[key] = value;
+                        }
+                    }
+
+                    try {
+                        // Check if the HSN code exists
+                        const { data: existingRecord, error: fetchError } = await supabase
+                            .from('market_prices')
+                            .select('*')
+                            .eq('hsn_code', hscode) // Store as string to preserve format
+                            .single();
+
+                        if (fetchError && fetchError.code !== 'PGRST116') { // Ignore "No rows found" error
+                            throw fetchError;
+                        }
+
+                        if (existingRecord) {
+                            // Update existing record - only the specific country column
+                            const { error: updateError } = await supabase
+                                .from('market_prices')
+                                .update({ 
+                                    [normalizedCountryName]: countryDataJson 
+                                })
+                                .eq('hsn_code', hscode); // Keep as string
+
+                            if (updateError) throw updateError;
+                            console.log(`Updated record for HSN ${hscode} with data for ${countryData.Country}`);
+                        } else {
+                            // Insert new record with hsn_code and country data
+                            const { error: insertError } = await supabase
+                                .from('market_prices')
+                                .insert({ 
+                                    hsn_code: hscode, // Store as string to preserve leading zeros
+                                    [normalizedCountryName]: countryDataJson 
+                                });
+
+                            if (insertError) throw insertError;
+                            console.log(`Created new record for HSN ${hscode} with data for ${countryData.Country}`);
+                        }
+                    } catch (error) {
+                        console.error(`Error processing HSN ${hscode} for ${countryData.Country}:`, error);
+                    }
+                }
+            }
         }
     }
     await browser.close();
