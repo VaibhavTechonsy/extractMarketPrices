@@ -35,7 +35,7 @@ async function coutrywise_export() {
             "HSData": {}
         };
 
-        for (let j = 2; j <= 8; j = j + 2) {
+        for (let j = 4; j <= 8; j = j + 2) {
             for (let i = 2021; i <= 2024; i++) {
                 await new Promise(resolve => setTimeout(resolve, 5000)); 
 
