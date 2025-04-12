@@ -9,7 +9,9 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Helper function to normalize country names for comparison
 function normalizeCountryName(countryName) {
-    return countryName.replace(/\s+/g, '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    return countryName
+  .replace(/\s+/g, '_')
+  .toUpperCase();
 }
 
 // Function to validate HSN code (must be numeric without dots and not just zeros)
