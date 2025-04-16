@@ -148,9 +148,9 @@ async function coutrywise_export() {
                         existingData.HSData[hsLevel] = data;
                     }
                 }
-                fs.writeFileSync(filePath, JSON.stringify(existingData, null, 2));
+                // fs.writeFileSync(filePath, JSON.stringify(existingData, null, 2));
             } else {
-                fs.writeFileSync(filePath, JSON.stringify(countryData, null, 2));
+                // fs.writeFileSync(filePath, JSON.stringify(countryData, null, 2));
             }
             
             console.log(`All HS data saved to ${filePath}`);
