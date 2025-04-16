@@ -23,6 +23,7 @@ function isValidHsnCode(hscode) {
 }
 
 async function coutrywise_export() {
+    console.log("Scraping started!");
     const browser = await puppeteer.launch({
         headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox']
